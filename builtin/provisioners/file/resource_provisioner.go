@@ -1,6 +1,7 @@
 package file
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -26,39 +27,79 @@ func (p *ResourceProvisioner) Apply(
 		return err
 	}
 
-	// Get the source and destination
-	sRaw := c.Config["source"]
-	src, ok := sRaw.(string)
-	if !ok {
-		return fmt.Errorf("Unsupported 'source' type! Must be string.")
-	}
-
-	src, err = homedir.Expand(src)
-	if err != nil {
-		return err
-	}
-
 	dRaw := c.Config["destination"]
 	dst, ok := dRaw.(string)
 	if !ok {
 		return fmt.Errorf("Unsupported 'destination' type! Must be string.")
 	}
-	return p.copyFiles(comm, src, dst)
+
+	if c.IsSet("source") && c.IsSet("content") {
+		return fmt.Errorf("Unsupported use of both source and content at the same time")
+	}
+
+	if c.IsSet("source") {
+		// Get the source and destination
+		sRaw := c.Config["source"]
+		src, ok := sRaw.(string)
+		if !ok {
+			return fmt.Errorf("Unsupported 'source' type! Must be string.")
+		}
+
+		src, err = homedir.Expand(src)
+		if err != nil {
+			return err
+		}
+
+		return p.copyFilesFromSource(comm, src, dst)
+	}
+	if c.IsSet("content") {
+		cRaw := c.Config["content"]
+		cont, ok := cRaw.(string)
+		if !ok {
+			return fmt.Errorf("Unsupported 'content' type! Must be string.")
+		}
+		return p.createFileFromContent(comm, cont, dst)
+	}
+	return fmt.Errorf("You must have eather source or content set")
 }
 
 // Validate checks if the required arguments are configured
 func (p *ResourceProvisioner) Validate(c *terraform.ResourceConfig) (ws []string, es []error) {
 	v := &config.Validator{
 		Required: []string{
-			"source",
 			"destination",
+		},
+		Optional: []string{
+			"source",
+			"content",
 		},
 	}
 	return v.Validate(c)
 }
 
+// Copy content to destination
+func (p *ResourceProvisioner) createFileFromContent(comm communicator.Communicator, content string, dst string) error {
+	// Wait and retry until we establish the connection
+	err := retryFunc(comm.Timeout(), func() error {
+		err := comm.Connect(nil)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	defer comm.Disconnect()
+
+	f := bytes.NewBuffer([]byte(content))
+
+	err = comm.Upload(dst, f)
+	if err != nil {
+		return fmt.Errorf("Upload failed: %v", err)
+	}
+	return err
+}
+
 // copyFiles is used to copy the files from a source to a destination
-func (p *ResourceProvisioner) copyFiles(comm communicator.Communicator, src, dst string) error {
+func (p *ResourceProvisioner) copyFilesFromSource(comm communicator.Communicator, src, dst string) error {
 	// Wait and retry until we establish the connection
 	err := retryFunc(comm.Timeout(), func() error {
 		err := comm.Connect(nil)

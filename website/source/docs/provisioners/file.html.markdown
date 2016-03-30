@@ -35,6 +35,22 @@ resource "aws_instance" "web" {
         source = "apps/app1/"
         destination = "D:/IIS/webapp1"
     }
+
+    # Copies a string to /etc/myapp.conf
+    provisioner "file" {
+        content = "Some content"
+        destination = "/etc/myapp.conf"
+    }
+
+    # Copies rendered template to /etc/myapp.conf
+    provisioner "file" {
+        content = "${template_file.file_contents.rendered}"
+        destination = "/etc/myapp.conf"
+    }
+}
+
+resource "template_file" "file_contents" {
+    template = "Some content"
 }
 ```
 
@@ -42,11 +58,15 @@ resource "aws_instance" "web" {
 
 The following arguments are supported:
 
-* `source` - (Required) This is the source file or folder. It can be specified as relative
+* `source` - (Optional) This is the source file or folder. It can be specified as relative
   to the current working directory or as an absolute path.
+
+* `content` - (Optional) This is the content of the file.
 
 * `destination` - (Required) This is the destination path. It must be specified as an
   absolute path.
+
+Both source and content are optional parameters, but it required that one is set.
 
 ## Directory Uploads
 

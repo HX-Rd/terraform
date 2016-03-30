@@ -26,6 +26,21 @@ func TestResourceProvider_Validate_good(t *testing.T) {
 	}
 }
 
+func TestResourceProvider_Validate_content_good(t *testing.T) {
+	c := testConfig(t, map[string]interface{}{
+		"content":     "test",
+		"destination": "/tmp/bar",
+	})
+	p := new(ResourceProvisioner)
+	warn, errs := p.Validate(c)
+	if len(warn) > 0 {
+		t.Fatalf("Warnings: %v", warn)
+	}
+	if len(errs) > 0 {
+		t.Fatalf("Errors: %v", errs)
+	}
+}
+
 func TestResourceProvider_Validate_bad(t *testing.T) {
 	c := testConfig(t, map[string]interface{}{
 		"source": "nope",
