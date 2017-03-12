@@ -29,6 +29,12 @@ func Provisioner() terraform.ResourceProvisioner {
 				ConflictsWith: []string{"source"},
 			},
 
+			"direction": &schema.Schema{
+				Type:     schema.TypeString,
+				Optional: true,
+				Default:  "Upload",
+			},
+
 			"destination": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,

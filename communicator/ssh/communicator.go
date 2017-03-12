@@ -384,6 +384,133 @@ func (c *Communicator) UploadDir(dst string, src string) error {
 
 	return c.scpSession("scp -rvt "+dst, scpFunc)
 }
+func (c *Communicator) Download(path string, input io.Reader) error {
+	scpFunc := func(w io.Writer, stdoutR *bufio.Reader) error {
+		fmt.Fprint(w, "\x00")
+
+		// read file info
+		fi, err := stdoutR.ReadString('\n')
+		if err != nil {
+			return err
+		}
+
+		if len(fi) < 0 {
+			return fmt.Errorf("empty response from server")
+		}
+
+		switch fi[0] {
+		case '\x01', '\x02':
+			return fmt.Errorf("%s", fi[1:])
+		case 'C':
+		case 'D':
+			return fmt.Errorf("remote file is directory")
+		default:
+			return fmt.Errorf("unexpected server response (%x)", fi[0])
+		}
+
+		var mode string
+		var size int64
+
+		n, err := fmt.Sscanf(fi, "%6s %d ", &mode, &size)
+		if err != nil || n != 2 {
+			return fmt.Errorf("can't parse server response (%s)", fi)
+		}
+		if size < 0 {
+			return fmt.Errorf("negative file size")
+		}
+
+		fmt.Fprint(w, "\x00")
+
+		if _, err := io.CopyN(output, stdoutR, size); err != nil {
+			return err
+		}
+
+		fmt.Fprint(w, "\x00")
+
+		if err := checkSCPStatus(stdoutR); err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if strings.Index(path, " ") == -1 {
+		return c.scpSession("scp -vf "+path, scpFunc)
+	}
+	return c.scpSession("scp -vf "+strconv.Quote(path), scpFunc)
+}
+
+func (c *Communicator) DownloadDir(src string, dst string, excl []string) error {
+	log.Printf("Download dir '%s' to '%s'", src, dst)
+	scpFunc := func(w io.Writer, stdoutR *bufio.Reader) error {
+		dirStack := []string{dst}
+		for {
+			fmt.Fprint(w, "\x00")
+
+			// read file info
+			fi, err := stdoutR.ReadString('\n')
+			if err != nil {
+				return err
+			}
+
+			if len(fi) < 0 {
+				return fmt.Errorf("empty response from server")
+			}
+
+			switch fi[0] {
+			case '\x01', '\x02':
+				return fmt.Errorf("%s", fi[1:])
+			case 'C', 'D':
+				break
+			case 'E':
+				dirStack = dirStack[:len(dirStack)-1]
+				if len(dirStack) == 0 {
+					fmt.Fprint(w, "\x00")
+					return nil
+				}
+				continue
+			default:
+				return fmt.Errorf("unexpected server response (%x)", fi[0])
+			}
+
+			var mode int64
+			var size int64
+			var name string
+			log.Printf("Download dir str:%s", fi)
+			n, err := fmt.Sscanf(fi[1:], "%o %d %s", &mode, &size, &name)
+			if err != nil || n != 3 {
+				return fmt.Errorf("can't parse server response (%s)", fi)
+			}
+			if size < 0 {
+				return fmt.Errorf("negative file size")
+			}
+
+			log.Printf("Download dir mode:%0o size:%d name:%s", mode, size, name)
+
+			dst = filepath.Join(dirStack...)
+			switch fi[0] {
+			case 'D':
+				err = os.MkdirAll(filepath.Join(dst, name), os.FileMode(mode))
+				if err != nil {
+					return err
+				}
+				dirStack = append(dirStack, name)
+				continue
+			case 'C':
+				fmt.Fprint(w, "\x00")
+				err = scpDownloadFile(filepath.Join(dst, name), stdoutR, size, os.FileMode(mode))
+				if err != nil {
+					return err
+				}
+			}
+
+			if err := checkSCPStatus(stdoutR); err != nil {
+				return err
+			}
+		}
+	}
+	return c.scpSession("scp -vrf "+src, scpFunc)
+}
 
 func (c *Communicator) newSession() (session *ssh.Session, err error) {
 	log.Println("opening new ssh session")

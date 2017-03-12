@@ -37,6 +37,12 @@ type Communicator interface {
 
 	// UploadDir is used to upload a directory
 	UploadDir(string, string) error
+
+	// Download is used to download a single file
+	Download(string, io.Reader) error
+
+	// DownloadDir is used to download a directory
+	DownloadDir(string, string, []string) error
 }
 
 // New returns a configured Communicator or an error if the connection type is not supported
